@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
 using System.Drawing;
+using System.IO;
 using System.Linq;
 using System.Text;
 using System.Windows.Forms;
@@ -67,8 +68,12 @@ namespace SHP2JSON
             featureCollection["type"] = "FeatureCollection";
             featureCollection["features"] = features;
 
+            StreamWriter writer = new StreamWriter("山体保护线.txt", false, Encoding.UTF8);
+
+            writer.Write("{'type': 'FeatureCollection','features': [".Replace('\'', '"'));
             
             for (int irecord = 0; irecord < nEntities; irecord++) {
+
                 Dictionary<string, object> feature = new Dictionary<string, object>();
                 Dictionary<string, object> properties = new Dictionary<string,object>();
                 Dictionary<string, object> geometry = new Dictionary<string, object>();
@@ -108,53 +113,90 @@ namespace SHP2JSON
 
                 // 填写图形
                 List<object> coordinates = new List<object>();
-                geometry["type"] = "Polygon";           // < 这里要修改
+
+
+                geometry["type"] = "";                  // 
                 geometry["coordinates"] = coordinates;  // 坐标集合
 
                 SHPObject psShape = hSHP.ReadObject(irecord);
+                //
+                switch (psShape.nSHPType) {
+                    case SHPT.POINT:
+                    case SHPT.POINTZ:
+                    case SHPT.POINTM:
+                        // 点数据
+                        geometry["type"] = "Point";
+                        break;
+                    case SHPT.ARC:
+                    case SHPT.ARCZ:
+                    case SHPT.ARCM:
+                        // 线数据
+                        geometry["type"] = "LineString";
+                        break;
+                    case SHPT.POLYGON:
+                    case SHPT.POLYGONZ:
+                    case SHPT.POLYGONM:
+                        // 面数据
+                        geometry["type"] = "Polygon";
+                        break;
+                    default:
+                        MessageBox.Show("暂时无法处理多点/多线数据");
+                        throw new Exception();
+                }
+                //
+                if (psShape.nSHPType == SHPT.POINT ||
+                    psShape.nSHPType == SHPT.POINTM ||
+                    psShape.nSHPType == SHPT.POINTZ) {
+                    geometry["coordinates"] = new double[] { psShape.padfX[0], psShape.padfY[0] };
+                }
+                else {
+                    // 读取所有节点
+                    for (int index = 0; index < psShape.panPartStart.Length; index++) {
+                        if (index < psShape.panPartStart.Length - 1) {
+                            // 普通的有开始有结束的
+                            int start = psShape.panPartStart[index];
+                            int end = psShape.panPartStart[index + 1];
 
-                // 读取所有节点
-                for (int index = 0; index < psShape.panPartStart.Length; index++) {
-                    if (index < psShape.panPartStart.Length - 1) {
-                        // 普通的有开始有结束的
-                        int start = psShape.panPartStart[index];
-                        int end = psShape.panPartStart[index + 1];
+                            List<object> parts = new List<object>();    // 坐标段
+                            coordinates.Add(parts);
+                            for (int n = start; n < end; n++) {
+                                double x = Math.Round(psShape.padfX[n], 6);
+                                double y = Math.Round(psShape.padfY[n], 6);
+                                parts.Add(new List<object>() { x, y });
+                            }
 
-                        List<object> parts = new List<object>();    // 坐标段
-                        coordinates.Add(parts);
-                        for (int n = start; n < end; n++) {
-                            double x = Math.Round(psShape.padfX[n], 6);
-                            double y = Math.Round(psShape.padfY[n], 6);
-                            parts.Add(new List<object>() { x, y });
                         }
+                        else {
+                            // 只有开始无结束的
+                            int start = psShape.panPartStart[index];
+                            int end = psShape.nVertices;
 
-                    }
-                    else {
-                        // 只有开始无结束的
-                        int start = psShape.panPartStart[index];
-                        int end = psShape.nVertices;
-
-                        List<object> parts = new List<object>();    // 坐标段
-                        coordinates.Add(parts);
-                        for (int n = start; n < end; n++) {
-                            double x = Math.Round(psShape.padfX[n], 6);
-                            double y = Math.Round(psShape.padfY[n], 6);
-                            parts.Add(new List<object>() { x, y });
-                        }
+                            List<object> parts = new List<object>();    // 坐标段
+                            coordinates.Add(parts);
+                            for (int n = start; n < end; n++) {
+                                double x = Math.Round(psShape.padfX[n], 6);
+                                double y = Math.Round(psShape.padfY[n], 6);
+                                parts.Add(new List<object>() { x, y });
+                            }
                         
-                    }
+                        }
 
+                    }
                 }
 
                 // 
 
-
+                string feature_str = Json.JsonSerialize(feature);
+                writer.Write(feature_str + ",");
 
             }
+            writer.Write("]}");
+            writer.Close();
 
+            //string jsonstr = Json.JsonSerialize(featureCollection);
+            //richTextBox.Text = jsonstr;
 
-            string jsonstr = Json.JsonSerialize(featureCollection);
-            richTextBox.Text = jsonstr;
+            richTextBox.Text = "完成.";
         }
 
 
